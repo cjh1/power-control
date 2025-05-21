@@ -794,6 +794,8 @@ func getHWStatesFromHW() error {
 		}
 	}
 
+	// TODO perform bulk update here
+
 	glogger.Infof("%s: Done processing BMC responses (%s)", fname, GLOB.PodName)
 
 	return nil
@@ -840,6 +842,7 @@ func monitorHW() {
 		//Update the current power states of all components in the component
 		//map by reading the actual hardware.
 
+		update := time.Now()
 		err = getHWStatesFromHW()
 
 		if err != nil {
@@ -847,6 +850,9 @@ func monitorHW() {
 			glogger.Errorf("ERROR getting HW states: %v", err)
 			continue
 		}
+
+		// TODO perform bulk update here maybe?
+		err 
 	}
 }
 
@@ -878,7 +884,7 @@ func updateHWState(xname string, hwState pcsmodel.PowerStateFilter,
 
 	comp.PSComp.PowerState = hwStateStr
 	comp.PSComp.ManagementState = mgmtStateStr
-	comp.PSComp.LastUpdated = time.Now().Format(time.RFC3339Nano)
+	comp.PSComp.LastUpdated = time.Now()
 	comp.PSComp.Error = errInfo
 
 	//Update stored map

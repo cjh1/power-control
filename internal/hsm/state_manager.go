@@ -691,3 +691,55 @@ func (b *HSMv2) FillHSMData(xnames []string) (map[string]*HsmData, error) {
 
 	return hdata, nil
 }
+
+func (b *HSMv2) BulkComponentStateUpdate(xnames []string, states []string) error {
+	if len(xnames) != len(states) {
+		return fmt.Errorf("ERROR: xnames and states arrays must be the same length")
+	}
+
+	smurl := b.HSMGlobals.SMUrl + hsmStateComponentsPath
+
+	queryData := CompQuery{
+		ComponentIDs: xnames,
+	}
+
+	ba, baerr := json.Marshal(&queryData)
+	if baerr != nil {
+		return fmt.Errorf("Error marshalling HSM component query data: %v", baerr)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, smurl, bytes.NewBuffer(ba))
+	if err != nil {
+		return fmt.Errorf("ERROR creating HTTP request for '%s': %v", smurl, err)
+	}
+
+	reqContext, reqCtxCancel := context.WithTimeout(context.Background(), 40 * time.Second)
+
+	req = req.WithContext(reqContext)
+
+	rsp, rsperr := b.HSMGlobals.SVCHttpClient.Do(req)
+	if rsperr != nil {
+		base.DrainAndCloseResponseBody(rsp)
+
+		reqCtxCancel() // Release resources and signal context timeout to stop
+
+		return fmt.Errorf("Error in http request '%s': %v", smurl, rsperr)
+	}
+
+	body, bderr := io.ReadAll(rsp.Body)
+
+	base.DrainAndCloseResponseBody(rsp)
+
+	reqCtxCancel() // Release resources and signal context timeout to stop
+
+	if bderr != nil {
+		return fmt.Errorf("Error reading response body for '%s': %v", smurl, bderr)
+	}
+
+	bderr = json.Unmarshal(body, &states)
+	if bderr != nil {
+		return fmt.Errorf("Error unmarshalling response body for '%s': %v", smurl, bderr)
+	}
+
+	return nil
+}
