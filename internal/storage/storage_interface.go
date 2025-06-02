@@ -61,6 +61,7 @@ type StorageProvider interface {
 	DeleteTransition(transitionID uuid.UUID) error
 	DeleteTransitionTask(transitionID uuid.UUID, taskID uuid.UUID) error
 	TASTransition(transition model.Transition, testVal model.Transition) (bool, error)
+	Close() error
 }
 
 type DistributedLockProvider interface {
@@ -70,4 +71,5 @@ type DistributedLockProvider interface {
 	GetDuration() time.Duration
 	DistributedTimedLock(maxLockTime time.Duration) error
 	Unlock() error
+	Close() error
 }
