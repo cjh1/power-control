@@ -1,3 +1,5 @@
+//go:build !integration_tests
+
 /*
  * (C) Copyright [2021-2023] Hewlett Packard Enterprise Development LP
  *
@@ -24,9 +26,10 @@ package model
 
 import (
 	"errors"
-	"github.com/stretchr/testify/suite"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/suite"
 )
 
 type ErrorPayloadTS struct {
