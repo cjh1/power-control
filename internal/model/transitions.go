@@ -23,6 +23,8 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -64,8 +66,23 @@ type TransitionParameter struct {
 }
 
 type LocationParameter struct {
-	Xname     string `json:"xname"`
-	DeputyKey string `json:"deputyKey,omitempty"`
+	Xname     string `json:"xname" db:"xname"`
+	DeputyKey string `json:"deputyKey,omitempty" db:"deputy_key"`
+}
+
+type LocationParameterSlice []LocationParameter
+
+func (l LocationParameterSlice) Value() (driver.Value, error) {
+	return json.Marshal(l)
+}
+
+func (l *LocationParameterSlice) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+
+	return json.Unmarshal(b, &l)
 }
 
 func ToTransition(parameter TransitionParameter, expirationTimeMins int) (TR Transition, err error) {
@@ -90,20 +107,38 @@ func ToTransition(parameter TransitionParameter, expirationTimeMins int) (TR Tra
 //////////////
 
 type Transition struct {
-	TransitionID            uuid.UUID           `json:"transitionID"`
-	Operation               Operation           `json:"operation"`
-	TaskDeadline            int                 `json:"taskDeadlineMinutes"`
-	Location                []LocationParameter `json:"location"`
-	CreateTime              time.Time           `json:"createTime"`
-	LastActiveTime          time.Time           `json:"lastActiveTime"`
-	AutomaticExpirationTime time.Time           `json:"automaticExpirationTime"`
-	Status                  string              `json:"transitionStatus"`
-	TaskIDs                 []uuid.UUID
+	// TransitionID is the transition's ID.
+	TransitionID uuid.UUID `json:"transitionID" db:"id"`
+	// Operation indicates the operation to perform, such as off or soft restart.
+	Operation Operation `json:"operation" db:"operation"`
+	// TaskDeadline is the time limit for completing the transition.
+	TaskDeadline int `json:"taskDeadlineMinutes" db:"deadline"`
+	// Location contains a list of xnames and associated credentials to apply the transition to.
+	Location LocationParameterSlice `json:"location" db:"location"`
+	// CreateTime is the time the transition was requested.
+	CreateTime time.Time `json:"createTime" db:"created"`
+	// LastActiveTime is a timestamp the power service updates regularly as long as it considers the transition active.
+	// This is used to reap old transitions that have been inactive for longer than a time threshold.
+	LastActiveTime time.Time `json:"lastActiveTime" db:"active"`
+	// AutomaticExpirationTime is a timestamp that will always reap a transition, regardless of its active status.
+	AutomaticExpirationTime time.Time `json:"automaticExpirationTime" db:"expires"`
+	// Status is the current phase of the transition lifecycle.
+	Status string `json:"transitionStatus" db:"status"`
+	// TaskIDs are the IDs of individual tasks in the transition/
+	TaskIDs []uuid.UUID
 
 	// Only populated when the task is completed
-	IsCompressed bool                 `json:"isCompressed"`
-	TaskCounts   TransitionTaskCounts `json:"taskCounts"`
-	Tasks        []TransitionTaskResp `json:"tasks,omitempty"`
+
+	// IsCompressed and TaskCounts are kinda  weird. PCS has the capability to only keep aggregate data about how many
+	// tasks succeeded or failed in TaskCounts, if it sets full=false when calling ToTransitionResp on a Transition and
+	// task set. However, it never sets this, and the full set of task info is always included in Transition.Tasks.
+
+	// IsCompressed indicates if the transition has its task counts tallied.
+	IsCompressed bool `json:"isCompressed" db:"compressed"`
+	// TaskCounts holds aggregate counts for task states.
+	TaskCounts TransitionTaskCounts `json:"taskCounts" db:"task_counts"`
+	// Tasks is a list of metadata about the transition's Tasks.
+	Tasks TransitionTaskRespSlice `json:"tasks,omitempty" db:"tasks"`
 }
 
 type TransitionPage struct {
@@ -116,16 +151,16 @@ type TransitionPage struct {
 }
 
 type TransitionTask struct {
-	TaskID         uuid.UUID `json:"taskID"`
-	TransitionID   uuid.UUID `json:"transitionID"`
-	Operation      Operation `json:"operation"` // != Transition.Operation Tasks the redfish power command being issued (for recovery purposes)
-	State          TaskState `json:"TaskState"`
-	Xname          string    `json:"xname"`
-	ReservationKey string    `json:"reservationKey,omitempty"`
-	DeputyKey      string    `json:"deputyKey,omitempty"`
-	Status         string    `json:"taskStatus"`
-	StatusDesc     string    `json:"taskStatusDescription"`
-	Error          string    `json:"error,omitempty"`
+	TaskID         uuid.UUID `json:"taskID" db:"id"`
+	TransitionID   uuid.UUID `json:"transitionID" db:"transition_id"`
+	Operation      Operation `json:"operation" db:"operation"` // != Transition.Operation Tasks the redfish power command being issued (for recovery purposes)
+	State          TaskState `json:"TaskState" db:"state"`
+	Xname          string    `json:"xname" db:"xname"`
+	ReservationKey string    `json:"reservationKey,omitempty" db:"reservation_key"`
+	DeputyKey      string    `json:"deputyKey,omitempty" db:"deputy_key"`
+	Status         string    `json:"taskStatus" db:"status"`
+	StatusDesc     string    `json:"taskStatusDescription" db:"status_desc"`
+	Error          string    `json:"error,omitempty" db:"error"`
 }
 
 //////////////
@@ -142,13 +177,13 @@ type TransitionRespArray struct {
 }
 
 type TransitionResp struct {
-	TransitionID            uuid.UUID            `json:"transitionID"`
-	Operation               string               `json:"operation"`
-	CreateTime              time.Time            `json:"createTime"`
-	AutomaticExpirationTime time.Time            `json:"automaticExpirationTime"`
-	TransitionStatus        string               `json:"transitionStatus"`
-	TaskCounts              TransitionTaskCounts `json:"taskCounts"`
-	Tasks                   []TransitionTaskResp `json:"tasks,omitempty"`
+	TransitionID            uuid.UUID               `json:"transitionID"`
+	Operation               string                  `json:"operation"`
+	CreateTime              time.Time               `json:"createTime"`
+	AutomaticExpirationTime time.Time               `json:"automaticExpirationTime"`
+	TransitionStatus        string                  `json:"transitionStatus"`
+	TaskCounts              TransitionTaskCounts    `json:"taskCounts"`
+	Tasks                   TransitionTaskRespSlice `json:"tasks,omitempty"`
 }
 
 type TransitionTaskCounts struct {
@@ -160,11 +195,39 @@ type TransitionTaskCounts struct {
 	Unsupported int `json:"un-supported"`
 }
 
+func (t TransitionTaskCounts) Value() (driver.Value, error) {
+	return json.Marshal(t)
+}
+
+func (t *TransitionTaskCounts) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+
+	return json.Unmarshal(b, &t)
+}
+
 type TransitionTaskResp struct {
 	Xname          string `json:"xname"`
 	TaskStatus     string `json:"taskStatus"`
 	TaskStatusDesc string `json:"taskStatusDescription"`
 	Error          string `json:"error,omitempty"`
+}
+
+type TransitionTaskRespSlice []TransitionTaskResp
+
+func (t TransitionTaskRespSlice) Value() (driver.Value, error) {
+	return json.Marshal(t)
+}
+
+func (t *TransitionTaskRespSlice) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return errors.New("type assertion to []byte failed")
+	}
+
+	return json.Unmarshal(b, &t)
 }
 
 type TransitionAbortResp struct {

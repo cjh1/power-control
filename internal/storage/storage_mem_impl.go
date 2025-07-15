@@ -28,9 +28,10 @@ import (
 	"time"
 
 	hmetcd "github.com/Cray-HPE/hms-hmetcd"
-	"github.com/OpenCHAMI/power-control/v2/internal/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+
+	"github.com/OpenCHAMI/power-control/v2/internal/model"
 )
 
 //This file contains the in-memory implementation of our object storage.
@@ -212,4 +213,8 @@ func (m *MEMStorage) DeleteTransitionTask(transitionID uuid.UUID, taskID uuid.UU
 func (m *MEMStorage) TASTransition(transition model.Transition, testVal model.Transition) (bool, error) {
 	e := toETCDStorage(m)
 	return e.TASTransition(transition, testVal)
+}
+
+func (m *MEMStorage) Close() error {
+	return toETCDStorage(m).Close()
 }

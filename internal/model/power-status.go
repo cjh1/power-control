@@ -23,12 +23,14 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
-//This pattern is from : https://yourbasic.org/golang/iota/
-//I think the only think we ever have to really worry about is ever changing the order of this (add/remove/re-order)
+// This pattern is from : https://yourbasic.org/golang/iota/
+// I think the only think we ever have to really worry about is ever changing the order of this (add/remove/re-order)
 type PowerStateFilter int
 
 const (
@@ -49,11 +51,11 @@ func ToPowerStateFilter(psf string) (PSF PowerStateFilter, err error) {
 		return
 	}
 	if strings.ToLower(psf) == "on" ||
-	   strings.ToLower(psf) == "poweringoff" {
+		strings.ToLower(psf) == "poweringoff" {
 		PSF = PowerStateFilter_On
 		err = nil
 	} else if strings.ToLower(psf) == "off" ||
-	          strings.ToLower(psf) == "poweringon" {
+		strings.ToLower(psf) == "poweringon" {
 		PSF = PowerStateFilter_Off
 		err = nil
 	} else if strings.ToLower(psf) == "undefined" {
@@ -67,7 +69,7 @@ func ToPowerStateFilter(psf string) (PSF PowerStateFilter, err error) {
 }
 
 func (psf PowerStateFilter) String() string {
-	if (int(psf) < 0) {
+	if int(psf) < 0 {
 		return "invalid"
 	}
 	return [...]string{"on", "off", "undefined"}[psf]
@@ -108,24 +110,47 @@ func ToManagementStateFilter(msf string) (MSF ManagementStateFilter, err error) 
 }
 
 func (msf ManagementStateFilter) String() string {
-	if (int(msf) < 0) {
+	if int(msf) < 0 {
 		return "invalid"
 	}
 	return [...]string{"available", "unavailable", "undefined"}[msf]
 }
 
-//https://levelup.gitconnected.com/implementing-enums-in-golang-9537c433d6e2
+// https://levelup.gitconnected.com/implementing-enums-in-golang-9537c433d6e2
 func (msf ManagementStateFilter) EnumIndex() int {
 	return int(msf)
 }
 
 type PowerStatusComponent struct {
-	XName                     string   `json:"xname"`
-	PowerState                string   `json:"powerState"`
-	ManagementState           string   `json:"managementState"`
-	Error                     string   `json:"error"`
-	SupportedPowerTransitions []string `json:"supportedPowerTransitions"`
-	LastUpdated               string   `json:"lastUpdated"` //RFC3339Nano
+	XName                     string    `json:"xname" db:"xname"`
+	PowerState                string    `json:"powerState" db:"power_state"`
+	ManagementState           string    `json:"managementState" db:"management_state"`
+	Error                     string    `json:"error" db:"error"`
+	SupportedPowerTransitions []string  `json:"supportedPowerTransitions" db:"supported_power_transitions"`
+	LastUpdated               time.Time `json:"lastUpdated" db:"last_updated"`
+}
+
+// UnmarshalJSON is a custom marshaller for PowerStatusComponent to ensure
+// that that LastUpdated is "" if its not been set.
+func (p PowerStatusComponent) MarshalJSON() ([]byte, error) {
+	type PowerStatusComponentOrginal PowerStatusComponent
+
+	// This is the default value for LastUpdated if its not set, for example
+	// when the status of a component is requested for a component that does not
+	// have power status, such as a node enclosure. It probably makes more sense
+	// for it to be null, but that would technically require a change to the API.
+	lastUpdated := ""
+	if !p.LastUpdated.IsZero() {
+		lastUpdated = p.LastUpdated.Format(time.RFC3339Nano)
+	}
+
+	return json.Marshal(&struct {
+		*PowerStatusComponentOrginal
+		LastUpdated string `json:"lastUpdated"`
+	}{
+		PowerStatusComponentOrginal: (*PowerStatusComponentOrginal)(&p),
+		LastUpdated:                 lastUpdated,
+	})
 }
 
 type PowerStatus struct {
@@ -133,7 +158,7 @@ type PowerStatus struct {
 }
 
 type PowerStatusParameter struct {
-	Xnames                    []string   `json:"xname"`
-	PowerStateFilter          string     `json:"powerStateFilter"`
-	ManagementStateFilter     string     `json:"managementStateFilter"`
+	Xnames                []string `json:"xname"`
+	PowerStateFilter      string   `json:"powerStateFilter"`
+	ManagementStateFilter string   `json:"managementStateFilter"`
 }
